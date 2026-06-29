@@ -30,27 +30,27 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-100`}>
         <StoreProvider>
-          <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+          <header className="border-b border-slate-700 bg-slate-900 shadow-lg shadow-slate-950/50">
             <nav className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-              <div className="text-lg font-semibold tracking-tight">Redux Toolkit + RTK Query Demo</div>
-              <ul className="flex gap-4 text-sm">
+              <div className="text-lg font-bold tracking-tight text-white">Redux Toolkit + RTK Query Demo</div>
+              <ul className="flex gap-5 text-sm font-medium text-slate-100">
                 <li>
-                  <Link className="hover:text-sky-300" href="/">
+                  <Link className="text-slate-100 transition hover:text-sky-400" href="/">
                     Overview
                   </Link>
                 </li>
                 <li>
-                  <Link className="hover:text-sky-300" href="/weather">
+                  <Link className="text-slate-100 transition hover:text-sky-400" href="/weather">
                     Weather Channel
                   </Link>
                 </li>
                 <li>
-                  <Link className="hover:text-sky-300" href="/cart">
+                  <Link className="text-slate-100 transition hover:text-sky-400" href="/cart">
                     Cart & Catalog
                   </Link>
                 </li>
                 <li>
-                  <Link className="hover:text-sky-300" href="/tasks">
+                  <Link className="text-slate-100 transition hover:text-sky-400" href="/tasks">
                     Team Tasks
                   </Link>
                 </li>
