@@ -27,6 +27,9 @@ const sections = [
 export default function Home() {
   return (
     <div className="flex flex-col gap-10">
+      <div className="rounded-xl border border-emerald-500 bg-emerald-500/10 p-4 text-center text-base font-semibold text-emerald-200">
+        🚀 Deployed automatically via the self-hosted CD pipeline — build v1 (develop)
+      </div>
       <section className="flex flex-col gap-4 rounded-xl border border-slate-800 bg-slate-900/70 p-8 shadow-2xl shadow-slate-950/50">
         <h1 className="text-4xl font-semibold text-slate-50">Redux Toolkit + RTK Query reference app</h1>
         <p className="max-w-3xl text-sm text-slate-300">
