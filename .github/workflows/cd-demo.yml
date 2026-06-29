@@ -125,10 +125,12 @@ jobs:
           Expand-Archive -Path "incoming/deploy.zip" -DestinationPath $release -Force
           Push-Location $release
           npm ci --omit=dev
-          # Start the production server detached
+          # Start the production server detached.
+          # Launch via node.exe + Next's launcher script (npx/next on Windows are .cmd, which Start-Process can't exec).
           $logOut = Join-Path $env:DEPLOY_ROOT "app.out.log"
           $logErr = Join-Path $env:DEPLOY_ROOT "app.err.log"
-          Start-Process -FilePath "npx" -ArgumentList "next","start","-p",$env:APP_PORT `
+          $nextBin = Join-Path $release "node_modules/next/dist/bin/next"
+          Start-Process -FilePath "node" -ArgumentList $nextBin,"start","-p",$env:APP_PORT `
             -WorkingDirectory $release -WindowStyle Hidden `
             -RedirectStandardOutput $logOut -RedirectStandardError $logErr
           Pop-Location
