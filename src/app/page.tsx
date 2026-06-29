@@ -27,11 +27,11 @@ const sections = [
 export default function Home() {
   return (
     <div className="flex flex-col gap-10">
-      <div className="rounded-xl border border-emerald-500 bg-emerald-500/10 p-4 text-center text-base font-semibold text-emerald-200">
-        🚀 Deployed automatically via the self-hosted CD pipeline — build v1 (develop)
+      <div className="rounded-xl border border-emerald-500 bg-emerald-500/10 p-4 text-center text-lg font-semibold text-emerald-200">
+        👋 Hi Amine! &nbsp;•&nbsp; 🚀 Auto-deployed via the self-hosted CD pipeline &nbsp;•&nbsp; build v2 (develop) &nbsp; ✅ 🔄 🟢
       </div>
       <section className="flex flex-col gap-4 rounded-xl border border-slate-800 bg-slate-900/70 p-8 shadow-2xl shadow-slate-950/50">
-        <h1 className="text-4xl font-semibold text-slate-50">Redux Toolkit + RTK Query reference app</h1>
+        <h1 className="text-4xl font-semibold text-slate-50">🛠️ Amine&apos;s Redux Toolkit + RTK Query reference app</h1>
         <p className="max-w-3xl text-sm text-slate-300">
           This demo highlights practical patterns for enterprise-scale state management: storage-aware caching,
           domain-driven folder structure, feature-first slices, middleware coordination, and a TDD-friendly testing
