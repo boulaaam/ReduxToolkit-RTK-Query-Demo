@@ -1,0 +1,195 @@
+name: CD Demo (self-hosted)
+
+# Branch-only / on-demand showcase pipeline.
+# Trigger manually with the "Run workflow" button, or on push to the cd-demo branch.
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why are you running this deploy?"
+        required: false
+        default: "Manual showcase run"
+  push:
+    branches: [cd-demo]
+
+permissions:
+  contents: read
+
+env:
+  APP_PORT: "3100"
+  DEPLOY_ROOT: "C:\\rtk-deploy"
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  # ────────────────────────────────────────────────────────────
+  # 1) BUILD — compile, package, hash, and publish an artifact
+  # ────────────────────────────────────────────────────────────
+  build:
+    runs-on: [self-hosted, rtk-demo]
+    outputs:
+      sha256: ${{ steps.hash.outputs.sha256 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (next build)
+        run: npm run build
+
+      - name: Package build output
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP "stage"
+          if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item -Recurse .next            (Join-Path $stage ".next")
+          Copy-Item -Recurse public           (Join-Path $stage "public") -ErrorAction SilentlyContinue
+          Copy-Item package.json              $stage
+          Copy-Item package-lock.json         $stage
+          Get-ChildItem next.config.* | ForEach-Object { Copy-Item $_.FullName $stage }
+          $zip = Join-Path $env:RUNNER_TEMP "deploy.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip
+          "ARTIFACT_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Compute SHA-256 (integrity)
+        id: hash
+        run: |
+          $h = (Get-FileHash -Algorithm SHA256 -Path $env:ARTIFACT_ZIP).Hash
+          "sha256=$h" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "::notice title=Artifact hash::SHA-256 $h"
+
+      - name: Write build manifest
+        run: |
+          $manifest = [pscustomobject]@{
+            repository = "${{ github.repository }}"
+            commit     = "${{ github.sha }}"
+            ref        = "${{ github.ref_name }}"
+            run_id     = "${{ github.run_id }}"
+            run_number = "${{ github.run_number }}"
+            actor      = "${{ github.actor }}"
+            sha256     = "${{ steps.hash.outputs.sha256 }}"
+            created_at = (Get-Date).ToString("o")
+          }
+          $manifest | ConvertTo-Json | Set-Content (Join-Path $env:RUNNER_TEMP "manifest.json") -Encoding utf8
+          Get-Content (Join-Path $env:RUNNER_TEMP "manifest.json")
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rtk-release
+          path: |
+            ${{ runner.temp }}/deploy.zip
+            ${{ runner.temp }}/manifest.json
+          retention-days: 3
+
+  # ────────────────────────────────────────────────────────────
+  # 2) DEPLOY — GATED by the "production" environment (your approval)
+  # ────────────────────────────────────────────────────────────
+  deploy:
+    needs: build
+    runs-on: [self-hosted, rtk-demo]
+    environment: production
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rtk-release
+          path: incoming
+
+      - name: Verify integrity (SHA-256 must match manifest)
+        run: |
+          $expected = "${{ needs.build.outputs.sha256 }}"
+          $actual   = (Get-FileHash -Algorithm SHA256 -Path "incoming/deploy.zip").Hash
+          Write-Host "Expected: $expected"
+          Write-Host "Actual:   $actual"
+          if ($expected -ne $actual) {
+            Write-Host "::error title=Integrity check failed::Artifact hash mismatch — refusing to deploy."
+            exit 1
+          }
+          Write-Host "::notice title=Integrity OK::Artifact hash verified before deploy."
+
+      - name: Deploy to localhost
+        run: |
+          $release = Join-Path $env:DEPLOY_ROOT "release"
+          New-Item -ItemType Directory -Force -Path $env:DEPLOY_ROOT | Out-Null
+          # Stop any previous instance on the port
+          $old = Get-NetTCPConnection -LocalPort $env:APP_PORT -State Listen -ErrorAction SilentlyContinue
+          if ($old) { $old | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }
+          if (Test-Path $release) { Remove-Item $release -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $release | Out-Null
+          Expand-Archive -Path "incoming/deploy.zip" -DestinationPath $release -Force
+          Push-Location $release
+          npm ci --omit=dev
+          # Start the production server detached
+          $logOut = Join-Path $env:DEPLOY_ROOT "app.out.log"
+          $logErr = Join-Path $env:DEPLOY_ROOT "app.err.log"
+          Start-Process -FilePath "npx" -ArgumentList "next","start","-p",$env:APP_PORT `
+            -WorkingDirectory $release -WindowStyle Hidden `
+            -RedirectStandardOutput $logOut -RedirectStandardError $logErr
+          Pop-Location
+          Write-Host "::notice title=Deployed::Started next start on port $env:APP_PORT"
+
+      - name: Health check
+        run: |
+          $url = "http://localhost:$($env:APP_PORT)"
+          $ok = $false
+          for ($i = 1; $i -le 15; $i++) {
+            try {
+              $r = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 5
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch { Start-Sleep -Seconds 2 }
+          }
+          if (-not $ok) {
+            Write-Host "::error title=Health check failed::App did not return 200 on $url"
+            exit 1
+          }
+          Write-Host "::notice title=Health OK::$url returned 200"
+
+      - name: Append audit log
+        if: always()
+        run: |
+          $line = "{0} | run #{1} | commit {2} | actor {3} | result {4}" -f `
+            (Get-Date).ToString("o"), "${{ github.run_number }}", "${{ github.sha }}", "${{ github.actor }}", "${{ job.status }}"
+          $log = Join-Path $env:DEPLOY_ROOT "audit.log"
+          Add-Content -Path $log -Value $line
+          Write-Host "Audit: $line"
+
+  # ────────────────────────────────────────────────────────────
+  # 3) NOTIFY — email boulaaam on success or failure
+  # ────────────────────────────────────────────────────────────
+  notify:
+    needs: [build, deploy]
+    if: always()
+    runs-on: [self-hosted, rtk-demo]
+    steps:
+      - name: Email result
+        env:
+          RESULT: ${{ needs.deploy.result }}
+          NOTIFY_EMAIL: ${{ vars.NOTIFY_EMAIL }}
+          SMTP_SERVER: ${{ vars.SMTP_SERVER }}
+          SMTP_FROM: ${{ vars.SMTP_FROM }}
+        run: |
+          $subject = "CD Demo run #${{ github.run_number }} — $($env:RESULT)"
+          $body = @"
+          Repository : ${{ github.repository }}
+          Run        : #${{ github.run_number }} (${{ github.run_id }})
+          Commit     : ${{ github.sha }}
+          Triggered  : ${{ github.actor }}
+          Deploy     : $($env:RESULT)
+          URL        : http://localhost:${{ env.APP_PORT }}
+          Logs       : ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          "@
+          if (-not $env:SMTP_SERVER -or -not $env:NOTIFY_EMAIL) {
+            Write-Host "::warning title=Email skipped::Set repo variables NOTIFY_EMAIL and SMTP_SERVER to enable email. GitHub still emails you on failure."
+            Write-Host $subject
+            Write-Host $body
+            exit 0
+          }
+          $from = if ($env:SMTP_FROM) { $env:SMTP_FROM } else { $env:NOTIFY_EMAIL }
+          Send-MailMessage -SmtpServer $env:SMTP_SERVER -From $from -To $env:NOTIFY_EMAIL -Subject $subject -Body $body
+          Write-Host "Email sent to $($env:NOTIFY_EMAIL)"
