@@ -1,7 +1,8 @@
 name: CD Demo (self-hosted)
 
-# Branch-only / on-demand showcase pipeline.
-# Trigger manually with the "Run workflow" button, or on push to the cd-demo branch.
+# CD pipeline:
+#   push to develop  -> auto deploy   (environment: develop, no approval)  -> localhost:3200
+#   push to main     -> manual deploy (environment: production, approval)   -> localhost:3100
 on:
   workflow_dispatch:
     inputs:
@@ -10,14 +11,10 @@ on:
         required: false
         default: "Manual showcase run"
   push:
-    branches: [cd-demo]
+    branches: [develop, main]
 
 permissions:
   contents: read
-
-env:
-  APP_PORT: "3100"
-  DEPLOY_ROOT: "C:\\rtk-deploy"
 
 defaults:
   run:
@@ -93,7 +90,11 @@ jobs:
   deploy:
     needs: build
     runs-on: [self-hosted, rtk-demo]
-    environment: production
+    # main -> production (manual approval gate); develop -> develop (auto, no gate)
+    environment: ${{ github.ref_name == 'main' && 'production' || 'develop' }}
+    env:
+      APP_PORT: ${{ github.ref_name == 'main' && '3100' || '3200' }}
+      DEPLOY_ROOT: ${{ github.ref_name == 'main' && 'C:\rtk-deploy\production' || 'C:\rtk-deploy\develop' }}
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -183,7 +184,7 @@ jobs:
           Commit     : ${{ github.sha }}
           Triggered  : ${{ github.actor }}
           Deploy     : $($env:RESULT)
-          URL        : http://localhost:${{ env.APP_PORT }}
+          URL        : http://localhost:${{ github.ref_name == 'main' && '3100' || '3200' }}
           Logs       : ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           "@
           if (-not $env:SMTP_SERVER -or -not $env:NOTIFY_EMAIL) {
